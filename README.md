@@ -51,5 +51,8 @@ returns:
 gsl_matrix * X_a    --- the analysis ensemble of initial state and/or parameters (n_dims cols; n_ens rows)
 
 
+### APSIM soil moisture application
 
+This is a test run with limited number of ensemble members (not fully representing the background error), but it shows how to recover a state variable given a time window.
 
+![Example of the solver for APSIM](APSIM_4DEnVar/example.png)
