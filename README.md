@@ -56,3 +56,7 @@ gsl_matrix * X_a    --- the analysis ensemble of initial state and/or parameters
 This is a test run with limited number of ensemble members (not fully representing the background error), but it shows how to recover a state variable given a time window. Ideally you want your ensembles to have enough spread. In this example since I didn't have enough ensembles, I had to reduce R to make the solver find solution closer to the obs. Next step is to see how we can recover both parameters and states at the same time.
 
 ![Example of the solver for APSIM](APSIM_4DEnVar/example.png)
+
+In this example, I'm trying to recover SAT, DUL, BD and LL15 for the first layer given the same observations as above and estimate the posterior for SW1. The length of the window is 70 days which effectivly breaks down the growing season into
+two parts.
+![Example of the solver for APSIM](APSIM_4DEnVar/example2_Window70.png)
