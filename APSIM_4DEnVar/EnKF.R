@@ -555,17 +555,31 @@ data_assimilation <- function(Forecast, Observed, R, theta, miyoshi,DA.method, p
         #theta <- infl$theta
       }else if (DA.method==4) {
         library(lubridate)
-        save.image("Test4DVar.RData")
         
+        # Create dir for writing the 4DEnVar files
+        if(!dir.exists("4DEnVar_Files")) dir.create("4DEnVar_Files")
+        if(dir.exists(file.path("4DEnVar_Files", gsub("-","_", today)))) unlink(file.path("4DEnVar_Files", gsub("-","_", today)), recursive = TRUE)
+        if(!dir.exists(file.path("4DEnVar_Files", gsub("-","_", today)))) dir.create(file.path("4DEnVar_Files", gsub("-","_", today)))
+        
+        #save.image(file.path("4DEnVar_Files", gsub("-","_", today), "Test4DVar.RData"))
+        #-----------------------------------
         today.vec <- (strsplit(today, '-')[[1]])
         
+        today_date_frmt <- Date_APSIM_to_R(today.vec[2] %>% as.numeric(),
+                        today.vec[1] %>% as.numeric()) %>% as.Date()
         
         #------------ Finding obs for this time window
-        window_dates <- lubridate::interval(lubridate::ymd(Observed$Date-window_length),
-                                            lubridate::ymd(Observed$Date))
+        window_dates <- lubridate::interval(lubridate::ymd(today_date_frmt-window_length),
+                                            lubridate::ymd(today_date_frmt))
+        
         
         window_obs<- obs.list %>%
           purrr::keep(~lubridate::ymd(.x$Date) %within% window_dates)
+        
+        if(length(window_obs) > window_length){
+          diff <- length(window_obs) - window_length
+          window_obs <- window_obs[(1+(diff)):length(window_obs)]
+        }
         
         Ys <- names(window_obs) %>%
           purrr::map_dfr(~ data.frame(Y = window_obs[[.x]]$Y,
@@ -582,31 +596,58 @@ data_assimilation <- function(Forecast, Observed, R, theta, miyoshi,DA.method, p
         #------------ Finding Predict for this time window
         X <- data.all %>%
           dplyr::filter(day %in% obs_days & year %in% obs_years) %>%
-          dplyr::select(day, year, window_obs[[1]]$Forecast.name, ensemble) %>%
+          dplyr::select(day, year, window_obs[[1]]$Forecast.name, ensemble, sat1, dul1, ll151, bd1, swcon1) %>%
           mutate(Date=paste0(day,"-", year)) %>%
           left_join(Ys, by="Date")
         
         hx <- X %>%
           split(.$ensemble) %>%
-          purrr::map_dfr(~ .x[[window_obs[[1]]$Forecast.name]]) %>%
+          purrr::map_dfr(~ .x[["sw1"]]) %>%
+          as.matrix() %>%
+          `colnames<-`(NULL)
+        nrow_states <- nrow(hx)
+        #------ Add soil params to Xb
+        #Background params
+        Pb <- X %>%
+          split(.$ensemble) %>%
+          purrr::map_dfr(~ .x[['sat1']]) %>%
+          apply(2, mean)%>%
+          bind_rows(
+            X %>%
+              split(.$ensemble) %>%
+              purrr::map_dfr(~ .x[['dul1']]) %>%
+              apply(2, mean) 
+          ) %>%
+          bind_rows(
+            X %>%
+              split(.$ensemble) %>%
+              purrr::map_dfr(~ .x[['bd1']]) %>%
+              apply(2, mean)
+          )%>%
+          bind_rows(
+            X %>%
+              split(.$ensemble) %>%
+              purrr::map_dfr(~ .x[['ll151']]) %>%
+              apply(2, mean) 
+          ) %>%
           as.matrix() %>%
           `colnames<-`(NULL)
         
-        # Create dir for writing the 4DEnVar files
-        if(!dir.exists("4DEnVar_Files")) dir.create("4DEnVar_Files")
-        if(!dir.exists(file.path("4DEnVar_Files", gsub("-","_", today)))) dir.create(file.path("4DEnVar_Files", gsub("-","_", today)))
         
-        #xb     --- the background ensemble of initial state and/or parameters (n_dims cols; n_ens rows) 
-        write.table(hx, file=file.path("4DEnVar_Files", gsub("-","_", today), "0xb.dat"), col.names = FALSE, row.names = FALSE)
+        Xb <- rbind(hx, Pb)
+        #--------------------------------------------------------------------------------------------------
+
+        #xb     --- the background ensemble of initial state and/or parameters. Each ensmble is a column. rows are in time. The analysis is the posterior of this.
+        write.table(Xb, file=file.path("4DEnVar_Files", gsub("-","_", today), "0xb.dat"), col.names = FALSE, row.names = FALSE)
         
-        #hx the ensmble of model predicted observations (n_obs cols; e_ens rows)  
+        #hx the ensmble of model predicted observations. Each column is a ens of model simulations through the time window . Each row is a time step.
         write.table(hx, file=file.path("4DEnVar_Files", gsub("-","_", today), "0hx.dat"), col.names = FALSE, row.names = FALSE)
         
         #hx_bar --- the model predicted observations for the mean of xb (n_obs rows)  
         write.table(apply(hx, 1, mean), file=file.path("4DEnVar_Files", gsub("-","_", today), "0hxbar.dat"), col.names = FALSE, row.names = FALSE)
         
         #R      --- the observation uncertainty covariance matrix (n_obs rows; n_obs cols)  
-        write.table(diag(Ys$R*0.001), file=file.path("4DEnVar_Files", gsub("-","_", today), "0R.dat"), col.names = FALSE, row.names = FALSE)
+        write.table(diag(Ys$R), file=file.path("4DEnVar_Files", gsub("-","_", today), "0R.dat"), col.names = FALSE, row.names = FALSE)
         
         #y      --- the observations (n_obs rows)  
         write.table(Ys$Y, file=file.path("4DEnVar_Files", gsub("-","_", today), "0y.dat"), col.names = FALSE, row.names = FALSE)
@@ -621,7 +662,39 @@ data_assimilation <- function(Forecast, Observed, R, theta, miyoshi,DA.method, p
                                       ), 
                      intern = TRUE)
         
-        output_4DVar
+        
+        if(output_4DVar > 0) {
+          # I'm extracting the last time step
+          # 4 parameters + 1 dash line 
+          # Towards the end of the growing season sometimes there is not enough obs for the whole time window. 
+          # Use whatever that is available to extract the same states/params
+          sel_ind <- window_length
+          if(nrow_states < window_length) sel_ind <- nrow_states
+          
+          
+          print("RAW 4DEnVar-------------")
+          print(output_4DVar)
+          Xa <- output_4DVar[((sel_ind+4)+1+sel_ind):length(output_4DVar) ] %>% 
+            purrr::map_dfc(~.x %>%strsplit(" ") %>% unlist() %>% as.numeric) %>%
+            as.matrix() %>%
+            `colnames<-`(c("sw1","sat1","dul1","bd1","ll151"))
+          
+          mu.a <- mean(Xa)
+          Pa <- var(Xa)
+          DAResult <- Xa
+          DAR <- list(
+            mu.a = as.numeric(mu.a),
+            Pa = Pa,
+            Xa = Xa, 
+            Xb = Xb, 
+            hx = hx, 
+            output_4DVar = output_4DVar, 
+            X = X
+          )
+          
+          # print("Xa-------------")
+          # print(Xa)
+        }
         
       }
       
@@ -642,8 +715,12 @@ data_assimilation <- function(Forecast, Observed, R, theta, miyoshi,DA.method, p
 get_Observed <- function(today, obs.list, dateinfo){
   
   ind <- which(names(obs.list) == today)
-  print(today)
-  Observed <- obs.list[[ind]]
+  if(length(ind)==0) {
+    Observed <- list()
+  }else{
+     Observed <- obs.list[[ind]]
+  }
+ 
   return(Observed)
 }
 

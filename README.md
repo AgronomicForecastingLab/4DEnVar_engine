@@ -60,3 +60,6 @@ This is a test run with limited number of ensemble members (not fully representi
 In this example, I'm trying to recover SAT, DUL, BD and LL15 for the first layer given the same observations as above and estimate the posterior for SW1. The length of the window is 70 days which effectivly breaks down the growing season into
 two parts.
 ![Example of the solver for APSIM](APSIM_4DEnVar/example2_Window70.png)
+
+This is with window length of 30 days:
+![Example of the solver for APSIM](APSIM_4DEnVar/example2_Window30.png)
