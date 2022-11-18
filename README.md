@@ -63,3 +63,8 @@ two parts.
 
 This is with window length of 30 days:
 ![Example of the solver for APSIM](APSIM_4DEnVar/example2_Window30.png)
+
+
+
+This is with window length of 200 days and we are trying to recover 7 parameters including Ks and SWCON in addition to others:
+![Example of the solver for APSIM](APSIM_4DEnVar/example3_Window200.png)
